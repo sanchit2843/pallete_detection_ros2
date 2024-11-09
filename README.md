@@ -1,0 +1,1 @@
+# pallete_detection_ros2
