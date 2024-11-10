@@ -3,9 +3,10 @@ from ultralytics import YOLO
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image
-from std_msgs.msg import String
+from vision_msgs.msg import Detection2D, Detection2DArray, ObjectHypothesisWithPose, BoundingBox2D
 from cv_bridge import CvBridge
 import argparse
+import numpy as np
 
 def infer(model, image):
     # Run inference on the image using the YOLO model
@@ -26,7 +27,7 @@ class YoloInferenceNode(Node):
             10)
         
         # Publishers for detections and masks
-        self.detections_pub = self.create_publisher(String, 'detections', 10)
+        self.detections_pub = self.create_publisher(Detection2DArray, 'detections', 10)
         self.mask_pub = self.create_publisher(Image, 'mask', 10)
     
     def image_callback(self, msg):
@@ -36,27 +37,76 @@ class YoloInferenceNode(Node):
         # Run YOLO inference
         results = infer(self.model, cv_image)
         
+        # Initialize Detection2DArray message
+        detection_array_msg = Detection2DArray()
+        detection_array_msg.header = msg.header  # Use the same header as the input image
+        
         # Process and publish results
         for result in results:
-            boxes = result.boxes
-            masks = result.masks
+            # Detection
+            boxes_xyxy = result.boxes.xyxy.cpu().numpy()  # (N, 4)
+            confidences = result.boxes.conf.cpu().numpy()  # (N, 1)
+            class_ids = result.boxes.cls.cpu().numpy()  # (N, 1)
+            
+            # Image dimensions
+            img_height, img_width = cv_image.shape[:2]
+            
+            for i in range(len(boxes_xyxy)):
+                x1, y1, x2, y2 = boxes_xyxy[i]
+                confidence = confidences[i][0] if confidences[i].size else confidences[i]
+                class_id = int(class_ids[i][0]) if class_ids[i].size else int(class_ids[i])
 
-            # Prepare detection information
-            detection_str = ''
-            if boxes is not None:
-                for box in boxes:
-                    x1, y1, x2, y2 = box.xyxy[0].tolist()
-                    class_id = int(box.cls[0])
-                    confidence = float(box.conf[0])
-                    detection_str += f'Class: {class_id}, Confidence: {confidence}, Box: [{x1}, {y1}, {x2}, {y2}]\n'
+                # Create Detection2D message
+                detection_msg = Detection2D()
+                detection_msg.header = msg.header  # Use the same timestamp and frame ID
+                
+                # Fill in results
+                hypothesis = ObjectHypothesisWithPose()
+                hypothesis.id = str(class_id)
+                hypothesis.score = float(confidence)
+                detection_msg.results.append(hypothesis)
+                
+                # Bounding box
+                bbox = BoundingBox2D()
+                bbox.center.x = (x1 + x2) / 2.0
+                bbox.center.y = (y1 + y2) / 2.0
+                bbox.size_x = x2 - x1
+                bbox.size_y = y2 - y1
+                detection_msg.bbox = bbox
 
-                detections_msg = String()
-                detections_msg.data = detection_str
-                self.detections_pub.publish(detections_msg)
-            # Render image with detections and publish as mask
-            rendered_image = result.plot()
-            mask_msg = self.bridge.cv2_to_imgmsg(rendered_image, encoding='bgr8')
-            self.mask_pub.publish(mask_msg)
+                # Append detection to the array
+                detection_array_msg.detections.append(detection_msg)
+        
+        # Publish detections
+        self.detections_pub.publish(detection_array_msg)
+        
+        # Segmentation masks
+        if result.masks is not None:
+            masks = result.masks.data.cpu().numpy()  # (N, H, W)
+            # Apply masks to the image
+            mask_overlay = self.apply_masks(cv_image, masks)
+        else:
+            # If no masks, use the image with bounding boxes
+            mask_overlay = result.plot()
+        
+        # Publish mask overlay image
+        mask_msg = self.bridge.cv2_to_imgmsg(mask_overlay, encoding='bgr8')
+        mask_msg.header = msg.header  # Preserve the original message header
+        self.mask_pub.publish(mask_msg)
+    
+    def apply_masks(self, image, masks):
+        # Apply masks to the image
+        mask_overlay = image.copy()
+        for mask in masks:
+            # Resize mask to match image size if necessary
+            if mask.shape != image.shape[:2]:
+                mask = cv2.resize(mask, (image.shape[1], image.shape[0]))
+            # Create a colored mask (e.g., red)
+            colored_mask = np.zeros_like(image)
+            colored_mask[:, :, 2] = mask * 255  # Apply mask to the red channel
+            # Overlay the mask on the image
+            mask_overlay = cv2.addWeighted(mask_overlay, 1.0, colored_mask.astype(np.uint8), 0.5, 0)
+        return mask_overlay
 
 def main(args=None):
     parser = argparse.ArgumentParser(description='Run YOLO inference on ROS image topic')
