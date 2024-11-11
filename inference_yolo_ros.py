@@ -50,11 +50,10 @@ class YoloInferenceNode(Node):
             
             # Image dimensions
             img_height, img_width = cv_image.shape[:2]
-            
             for i in range(len(boxes_xyxy)):
                 x1, y1, x2, y2 = boxes_xyxy[i]
-                confidence = confidences[i][0] if confidences[i].size else confidences[i]
-                class_id = int(class_ids[i][0]) if class_ids[i].size else int(class_ids[i])
+                confidence = float(confidences[i])
+                class_id = int(class_ids[i])
 
                 # Create Detection2D message
                 detection_msg = Detection2D()
@@ -70,8 +69,8 @@ class YoloInferenceNode(Node):
                 bbox = BoundingBox2D()
                 bbox.center.x = (x1 + x2) / 2.0
                 bbox.center.y = (y1 + y2) / 2.0
-                bbox.size_x = x2 - x1
-                bbox.size_y = y2 - y1
+                bbox.size_x = float(x2 - x1)
+                bbox.size_y = float(y2 - y1)
                 detection_msg.bbox = bbox
 
                 # Append detection to the array
@@ -107,11 +106,19 @@ class YoloInferenceNode(Node):
             # Overlay the mask on the image
             mask_overlay = cv2.addWeighted(mask_overlay, 1.0, colored_mask.astype(np.uint8), 0.5, 0)
         return mask_overlay
+    
+    def depth_callback(self, msg):
+        try:
+            self.latest_depth_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
+            # Optionally, process the depth image here or integrate it with object detection logic
+        except Exception as e:
+            self.get_logger().error(f"Failed to convert depth image: {e}")
 
 def main(args=None):
     parser = argparse.ArgumentParser(description='Run YOLO inference on ROS image topic')
-    parser.add_argument("--model_path", type=str, default='yolov8n.pt', help="Path to YOLO model")
+    parser.add_argument("--model_path", type=str, default='/home/ayush/personaL-work/sanchit/pallete_detection_ros2/trained_weights.pt', help="Path to YOLO model")
     parser.add_argument("--image_topic", type=str, default='/camera/image_raw', help="ROS2 image topic to subscribe to")
+    parser.add_argument("--depth_topic", type=str, default='/camera/depth/image_raw', help="ROS2 depth image topic to subscribe to")
     parsed_args = parser.parse_args(args=args)
 
     rclpy.init(args=args)
