@@ -19,5 +19,5 @@ python publish_image.py ---model_path "" --image_topic "/camera/image_raw"
 #### Run detector
 
 ```
-python inference_yolo_ros.py ---model_path "" --image_topic "/camera/image_raw"
+python detection_image_publisher.py
 ```
