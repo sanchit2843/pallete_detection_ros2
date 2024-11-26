@@ -49,44 +49,46 @@ class YoloInferenceNode(Node):
         )  # Use the same header as the input image
 
         # Process and publish results
-        for result in results:
-            # Detection
-            boxes_xyxy = result.boxes.xyxy.cpu().numpy()  # (N, 4)
-            confidences = result.boxes.conf.cpu().numpy()  # (N, 1)
-            class_ids = result.boxes.cls.cpu().numpy()  # (N, 1)
-            # print("class_ids",class_ids)
-            # Image dimensions
-            img_height, img_width = cv_image.shape[:2]
-            for i in range(len(boxes_xyxy)):
-                x1, y1, x2, y2 = boxes_xyxy[i]
-                confidence = float(confidences[i])
-                class_id = int(class_ids[i])
+        # for result in results:
+        #     # Detection
+        #     boxes_xyxy = result.boxes.xyxy.cpu().numpy()  # (N, 4)
+        #     confidences = result.boxes.conf.cpu().numpy()  # (N, 1)
+        #     class_ids = result.boxes.cls.cpu().numpy()  # (N, 1)
+        #     # print("class_ids",class_ids)
+        #     # Image dimensions
+        #     img_height, img_width = cv_image.shape[:2]
+        #     for i in range(len(boxes_xyxy)):
+        #         x1, y1, x2, y2 = boxes_xyxy[i]
+        #         confidence = float(confidences[i])
+        #         class_id = int(class_ids[i])
 
-                # Create Detection2D message
-                detection_msg = Detection2D()
-                detection_msg.header = msg.header  # Use the same timestamp and frame ID
+        #         # Create Detection2D message
+        #         detection_msg = Detection2D()
+        #         detection_msg.header = msg.header  # Use the same timestamp and frame ID
 
-                # Fill in results
-                hypothesis = ObjectHypothesisWithPose()
-                hypothesis.id = str(class_id)
-                hypothesis.score = float(confidence)
-                detection_msg.results.append(hypothesis)
+        #         # Fill in results
+        #         hypothesis = ObjectHypothesisWithPose()
+        #         hypothesis.id = str(class_id)
+        #         hypothesis.score = float(confidence)
+        #         detection_msg.results.append(hypothesis)
 
-                # Bounding box
-                bbox = BoundingBox2D()
-                bbox.center.x = (x1 + x2) / 2.0
-                bbox.center.y = (y1 + y2) / 2.0
-                bbox.size_x = float(x2 - x1)
-                bbox.size_y = float(y2 - y1)
-                detection_msg.bbox = bbox
+        #         # Bounding box
+        #         bbox = BoundingBox2D()
+        #         bbox.center.x = (x1 + x2) / 2.0
+        #         bbox.center.y = (y1 + y2) / 2.0
+        #         bbox.size_x = float(x2 - x1)
+        #         bbox.size_y = float(y2 - y1)
+        #         detection_msg.bbox = bbox
 
-                # Append detection to the array
-                detection_array_msg.detections.append(detection_msg)
+        #         # Append detection to the array
+        #         detection_array_msg.detections.append(detection_msg)
 
-        # Publish detections
-        self.detections_pub.publish(detection_array_msg)
+        # # Publish detections
+        # self.detections_pub.publish(detection_array_msg)
 
-        # Segmentation masks
+        # Segmentation masks    
+        result = results[0]
+        class_ids = result.boxes.cls.cpu().numpy()
         if result.masks is not None:
             masks = result.masks.data.cpu().numpy()  # (N, H, W)
             # Apply masks to the image
